@@ -1,4 +1,4 @@
-#!/bin/bash
+	#!/bin/bash
 
 # trellis bedrock sage
 
@@ -23,10 +23,11 @@
 args=("$@")
 echo "created args array"
 
-APP_NAME="${args[0]}"
-ADMIN_EMAIL="${args[1]}"
-STAGING_IP_ADDRESS="${args[2]}"
-PRODUCTION_IP_ADDRESS="${args[3]}"
+GITHUB_USER="${args[0]}"
+APP_NAME="${args[1]}"
+ADMIN_EMAIL="${args[2]}"
+STAGING_IP_ADDRESS="${args[3]}"
+PRODUCTION_IP_ADDRESS="${args[4]}"
 
 # Move to wordpress directory inside of apps directory
 cd ~/apps/wordpress
@@ -83,38 +84,22 @@ sed -i '' "s|site_title: Example Site|site_title: $APP_NAME app|g" group_vars/de
 # Staging #
 ###########
 echo "Configuring wordpress_sites for staging"
-#
-sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/staging/vault.yml
-# Update repository to a Discrete Units Organization Repo
-sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:discreteunits/$APP_NAME\.com\.git|g" group_vars/staging/wordpress_sites.yml
-# Update Project name to first argument provided
-sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/staging/wordpress_sites.yml
 
+STAGING_URL="staging\.$APP_NAME\.com"
 #
-sed -i '' "s|staging\.$APP_NAME\.com|staging\.v2\.$APP_NAME\.com|g" group_vars/staging/wordpress_sites.yml
+sed -i '' "s|example\.com|$STAGING_URL|g" group_vars/staging/vault.yml
+# Update repository to a Discrete Units Organization Repo
+sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$APP_NAME\.com\.git|g" group_vars/staging/wordpress_sites.yml
+# Update Project name to first argument provided
+sed -i '' "s|example\.com|$STAGING_URL|g" group_vars/staging/wordpress_sites.yml
+
+
 # Update site_title to first argument provided
 sed -i '' "s|site_title: Example Site|site_title: $APP_NAME app|g" group_vars/staging/wordpress_sites.yml
 # Update to second argument provided
 sed -i '' "s|admin_email: admin@example\.dev|admin_email: $ADMIN_EMAIL|g" group_vars/staging/wordpress_sites.yml
 # Uncomment subtree_path when using trellis directory structure
 sed -i '' "s|# subtree_path: site|subtree_path: site|g" group_vars/staging/wordpress_sites.yml
-# Add pre build commands for sage theme
-# cat <<EOT >> group_vars/staging/wordpress_sites.yml
-
-# project_pre_build_commands_local:
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: npm install
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: bower install
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: gulp --production
-
-# project_local_files:
-#   - name: compiled theme assets
-#     src: '{{ project.local_path }}/web/app/themes/$APP_NAME/dist'
-#     dest: web/app/themes/$APP_NAME
-# EOT
-
 # Update hosts for Staging
 sed -i '' "s|your_server_hostname|$STAGING_IP_ADDRESS|g" hosts/staging
 
@@ -125,7 +110,7 @@ echo "Configuring wordpress_sites for production"
 #
 sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/production/vault.yml
 # Update repository to a Discrete Units Organization Repo
-sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:discreteunits/$APP_NAME\.com.git|g" group_vars/production/wordpress_sites.yml
+sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$APP_NAME\.com.git|g" group_vars/production/wordpress_sites.yml
 # Update Project name to first argument provided
 sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/production/wordpress_sites.yml
 # Update site_title to first argument provided
@@ -186,7 +171,7 @@ git add .
 # Commit codebase
 git commit -m "first commit, adding trellis, beadrock, and sage files from provision script."
 # Add origin
-git remote add origin git@github.com:discreteunits/$APP_NAME.com.git
+git remote add origin git@github.com:$GITHUB_USER/$APP_NAME.com.git
 # Push to master branch
 git push -u origin master
 
@@ -194,17 +179,26 @@ git push -u origin master
 cd trellis
 # Vagrant
 vagrant up
+
+#$ ansible-playbook server.yml -e env=<environment>
+
 # Provision Staging Server
 # ansible-playbook -i '' hosts/staging server.yml
+#ansible-playbook server.yml -e env=staging
 # Provision Production Server
 # ansible-playbook -i '' hosts/production server.yml
+#ansible-playbook server.yml -e env=production
+
+#ansible-playbook deploy.yml -e "site=roots-example-project.com env=<environment>"
 
 # Deploy to Staging Server
 # ./deploy.sh staging $APP_NAME.com
+#ansible-playbook deploy.yml -e "site=$STAGING_URL env=staging"
+
 # Deploy to Production Server
 #./deploy.sh production $APP_NAME.com
+#ansible-playbook deploy.yml -e "site=$APP_NAME.com env=production"
 
-#
 cd ../site/web/app/themes/$APP_NAME
 # Turn on gulp to watch for changes and fire up browsersync
 gulp watch
