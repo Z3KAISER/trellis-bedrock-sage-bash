@@ -1,4 +1,4 @@
-	#!/bin/bash
+#!/bin/bash
 
 # trellis bedrock sage
 
@@ -10,30 +10,37 @@
 # We can also store arguments from bash command line in special array
 #args=("$@")
 #echo arguments to the shell
-#echo $APP_NAME $ADMIN_EMAIL $STAGING_IP_ADDRESS ' -> args=("$@"); echo $APP_NAME $ADMIN_EMAIL $STAGING_IP_ADDRESS'
+#echo $DOMAIN_NAME $ADMIN_EMAIL $STAGING_IP_ADDRESS ' -> args=("$@"); echo $DOMAIN_NAME $ADMIN_EMAIL $STAGING_IP_ADDRESS'
 
 #use $@ to print out all arguments at once
 #echo $@ ' -> echo $@'
 
 # use $# variable to print out
 # number of arguments passed to the bash script
-#echo Number of arguments passed: $# ' -> echo Number of arguments passed: $#' 
+#echo Number of arguments passed: $# ' -> echo Number of arguments passed: $#'
 
 # Create Arguments Array
 args=("$@")
-echo "created args array"
 
+# Setting variables based on args ./... <GITHUB_USER> <DOMAIN_NAME> <TLD> <REPO_NAME> <ADMIN_EMAIL> <STAGING_IP_ADDRESS> <PRODUCTION_IP_ADDRESS>
 GITHUB_USER="${args[0]}"
-APP_NAME="${args[1]}"
-ADMIN_EMAIL="${args[2]}"
-STAGING_IP_ADDRESS="${args[3]}"
-PRODUCTION_IP_ADDRESS="${args[4]}"
+DOMAIN_NAME="${args[1]}"
+TLD="${args[2]}"
+REPO_NAME="${args[3]}"
+ADMIN_EMAIL="${args[4]}"
+STAGING_IP_ADDRESS="${args[5]}"
+PRODUCTION_IP_ADDRESS="${args[6]}"
+
+# Function Declarations
+function paranoia {
+  openssl rand -base64 $1
+}
 
 # Move to wordpress directory inside of apps directory
 cd ~/apps/wordpress
 
 # Create and Navigate to the app directory from the first argument provided
-mkdir $APP_NAME.com && cd $APP_NAME.com
+mkdir $REPO_NAME && cd $REPO_NAME
 
 # Clone into Trellis and remove the existing git history
 git clone --depth=1 git@github.com:roots/trellis.git trellis && rm -rf trellis/.git
@@ -42,60 +49,96 @@ git clone --depth=1 git@github.com:roots/trellis.git trellis && rm -rf trellis/.
 git clone --depth=1 git@github.com:roots/bedrock.git site && rm -rf site/.git
 
 # Clone into Sage, Rename to first argument provided and remvove existing git history
-git clone git@github.com:roots/sage.git site/web/app/themes/$APP_NAME && rm -rf site/web/app/themes/$APP_NAME/.git
-
-# Move Vagrantfile to root level
-# mv trellis/ Vagrantfile .
-
-# Update the ANSIBLE_PATH constant
-# sed -i '' "s|ANSIBLE_PATH = __dir__|ANSIBLE_PATH = File\.join(__dir__, 'ansible')|g" Vagrantfile 
+# Temporarily specifying latest stable branch until version 9 is ready for production
+git clone -b 8.5.0 git@github.com:roots/sage.git site/web/app/themes/$REPO_NAME && rm -rf site/web/app/themes/$REPO_NAME/.git
 
 # Set the WP_DEFAULT_THEME to the first argument provided
-# WP_DEFAULT_THEME_STR=$'define('DISALLOW_FILE_EDIT', true);n define('WP_DEFAULT_THEME', '$APP_NAME');'
+# WP_DEFAULT_THEME_STR=$'define('DISALLOW_FILE_EDIT', true);n define('WP_DEFAULT_THEME', '$DOMAIN_NAME');'
 # sed -i '' "s|define('DISALLOW_FILE_EDIT', true);||g" site/config/application.php
 sed -i '' "s|define('DISALLOW_FILE_EDIT', true);|define('DISALLOW_FILE_EDIT', true);\
-define('WP_DEFAULT_THEME', '$APP_NAME');|g" site/config/application.php
+define('WP_DEFAULT_THEME', '$REPO_NAME');|g" site/config/application.php
 
 # Move into Ansible directory and run the Install Script
 cd trellis && ansible-galaxy install -r requirements.yml
-echo "Running trellis requirements.yml"
+echo "Running ansible requirements.yml"
 
 # Begin Trellis Config
 # Update wordpress_sites.yml for staging environments
+#
+touch .vault_pass
+#
+VAULT_PASS=$(paranoia 18)
+#
+echo $VAULT_PASS > .vault_pass
+#
+chmod 600 .vault_pass
+
+#######
+# All #
+#######
+echo "Configuring Mail PW for All"
+#
+VAULT_MAIL_PASS=$(paranoia 18)
+#
+sed -i '' "s|: smtp_password|: $VAULT_MAIL_PASS|g" group_vars/all/vault.yml
 
 ###############
 # Development #
 ###############
 echo "Configuring wordpress_sites for development"
+#
+DEV_VAULT_MYSQL_ROOT_PASS=$(paranoia 18)
+#
+DEV_VAULT_USERS_PASS=$(paranoia 18)
+#
+DEV_VAULT_USERS_DB_PASS=$(paranoia 18)
+#
+sed -i '' "s|: devpw|: $DEV_VAULT_MYSQL_ROOT_PASS|g" group_vars/development/vault.yml
+#
+sed -i '' "s|: admin|: $DEV_VAULT_USERS_PASS|g" group_vars/development/vault.yml
+#
+sed -i '' "s|: example_dbpassword|: $DEV_VAULT_USERS_DB_PASS|g" group_vars/development/vault.yml
 # Update Project name to first argument provided
-sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/development/wordpress_sites.yml
+sed -i '' "s|example\.com|$DOMAIN_NAME$TLD|g" group_vars/development/wordpress_sites.yml
 #
-sed -i '' "s|example|$APP_NAME|g" group_vars/development/mail.yml
+sed -i '' "s|example|$DOMAIN_NAME|g" group_vars/development/mail.yml
 #
-sed -i '' "s|example|$APP_NAME|g" group_vars/development/vault.yml
+sed -i '' "s|example|$DOMAIN_NAME|g" group_vars/development/vault.yml
 # Update admin_email to second argument provided
 sed -i '' "s|admin_email: admin@example\.dev|admin_email: $ADMIN_EMAIL|g" group_vars/development/wordpress_sites.yml
 # Update hostname site urls for development environment
-sed -i '' "s|example\.dev|$APP_NAME\.dev|g" group_vars/development/wordpress_sites.yml
+sed -i '' "s|example\.dev|$REPO_NAME\.dev|g" group_vars/development/wordpress_sites.yml
 # Update site_title to first argument provided
-sed -i '' "s|site_title: Example Site|site_title: $APP_NAME app|g" group_vars/development/wordpress_sites.yml
+sed -i '' "s|site_title: Example Site|site_title: $DOMAIN_NAME app|g" group_vars/development/wordpress_sites.yml
 
 ###########
 # Staging #
 ###########
 echo "Configuring wordpress_sites for staging"
-
-STAGING_URL="staging\.$APP_NAME\.com"
+#
+STAGE_VAULT_MYSQL_ROOT_PASS=$(paranoia 18)
+#
+STAGE_VAULT_USERS_PASS=$(paranoia 18)
+#
+STAGE_VAULT_USERS_DB_PASS=$(paranoia 18)
+#
+sed -i '' "s|: stagingpw|: $STAGE_VAULT_MYSQL_ROOT_PASS|g" group_vars/staging/vault.yml
+#
+sed -i '' "s|: example_password|: $STAGE_VAULT_USERS_PASS|g" group_vars/staging/vault.yml
+#
+sed -i '' "s|: example_dbpassword|: $STAGE_VAULT_USERS_DB_PASS|g" group_vars/staging/vault.yml
+#
+STAGING_URL="staging\.$DOMAIN_NAME$TLD"
+#
+sed -i '' "s|staging\.example\.com|$STAGING_URL|g" group_vars/staging/vault.yml
 #
 sed -i '' "s|example\.com|$STAGING_URL|g" group_vars/staging/vault.yml
 # Update repository to a Discrete Units Organization Repo
-sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$APP_NAME\.com\.git|g" group_vars/staging/wordpress_sites.yml
+sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$REPO_NAME\.git|g" group_vars/staging/wordpress_sites.yml
 # Update Project name to first argument provided
 sed -i '' "s|example\.com|$STAGING_URL|g" group_vars/staging/wordpress_sites.yml
-
-
 # Update site_title to first argument provided
-sed -i '' "s|site_title: Example Site|site_title: $APP_NAME app|g" group_vars/staging/wordpress_sites.yml
+sed -i '' "s|site_title: Example Site|site_title: $DOMAIN_NAME app|g" group_vars/staging/wordpress_sites.yml
 # Update to second argument provided
 sed -i '' "s|admin_email: admin@example\.dev|admin_email: $ADMIN_EMAIL|g" group_vars/staging/wordpress_sites.yml
 # Uncomment subtree_path when using trellis directory structure
@@ -108,52 +151,62 @@ sed -i '' "s|your_server_hostname|$STAGING_IP_ADDRESS|g" hosts/staging
 ##############
 echo "Configuring wordpress_sites for production"
 #
-sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/production/vault.yml
+PROD_VAULT_MYSQL_ROOT_PASS=$(paranoia 18)
+#
+PROD_VAULT_USERS_PASS=$(paranoia 18)
+#
+PROD_VAULT_USERS_DB_PASS=$(paranoia 18)
+#
+sed -i '' "s|: productionpw|: $PROD_VAULT_MYSQL_ROOT_PASS|g" group_vars/production/vault.yml
+#
+sed -i '' "s|: example_password|: $PROD_VAULT_USERS_PASS|g" group_vars/production/vault.yml
+#
+sed -i '' "s|: example_dbpassword|: $PROD_VAULT_USERS_DB_PASS|g" group_vars/production/vault.yml
+#
+sed -i '' "s|example\.com|$DOMAIN_NAME$TLD|g" group_vars/production/vault.yml
 # Update repository to a Discrete Units Organization Repo
-sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$APP_NAME\.com.git|g" group_vars/production/wordpress_sites.yml
+sed -i '' "s|git@github\.com:example/example\.com.git|git@github\.com:$GITHUB_USER/$REPO_NAME.git|g" group_vars/production/wordpress_sites.yml
 # Update Project name to first argument provided
-sed -i '' "s|example\.com|$APP_NAME\.com|g" group_vars/production/wordpress_sites.yml
+sed -i '' "s|example\.com|$DOMAIN_NAME$TLD|g" group_vars/production/wordpress_sites.yml
 # Update site_title to first argument provided
-sed -i '' "s|site_title: Example Site|site_title: $APP_NAME app|g" group_vars/production/wordpress_sites.yml
+sed -i '' "s|site_title: Example Site|site_title: $DOMAIN_NAME app|g" group_vars/production/wordpress_sites.yml
 # Update to second argument provided
 sed -i '' "s|admin_email: admin@example.dev|admin_email: $ADMIN_EMAIL|g" group_vars/production/wordpress_sites.yml
 # Uncomment subtree_path when using trellis directory structure
 sed -i '' "s|# subtree_path: site|subtree_path: site|g" group_vars/production/wordpress_sites.yml
-# Add pre build commands for sage theme
-# cat <<EOT >> group_vars/production/wordpress_sites.yml
-
-# project_pre_build_commands_local:
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: npm install
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: bower install
-#   - path: '{{ project.local_path }}/web/app/themes/$APP_NAME'
-#     cmd: gulp --production
-
-# project_local_files:
-#   - name: compiled theme assets
-#     src: '{{ project.local_path }}/web/app/themes/$APP_NAME/dist'
-#     dest: web/app/themes/$APP_NAME
-# EOT
-
 # Update hosts for Production with third argument provided
 sed -i '' "s|your_server_hostname|$PRODUCTION_IP_ADDRESS|g" hosts/production
 
-# Sage Theme Config
+#########
+# Salts #
+#########
+# Leverage WP CLI Package
+# NOTE: This will most likely have to be done manually or with an executable php script :D
+
+#################
+# Ansible Vault #
+#################
+# NOTE: This is dependent on the above step being automated :\
+# ansible-vault encrypt group_vars/all/vault.yml group_vars/development/vault.yml group_vars/staging/vault.yml group_vars/production/vault.yml
+
+#####################
+# Sage Theme Config #
+#####################
+
 # Back out of trellis directory
-# cd ../$APP_NAME.com
 cd ../
 
-# composer create-project roots/sage site/web/app/themes/$APP_NAME
-# Not necessary
-# cd site
-# wp theme activate $APP_NAME
+# Add Default Plugins
+sed -i '' 's|"roots/wp-password-bcrypt": "1.0.0"|"roots/wp-password-bcrypt": "1.0.0",\
+    "roots/soil": "3.7.1",\
+    "wpackagist-plugin/wordpress-seo": "3.7.1",\
+    "wpackagist-plugin/custom-post-type-ui": "1.4.3"|g' site/composer.json
 
 # Update site url in manifest.json
-sed -i '' "s|http:\/\/example\.dev|http:\/\/$APP_NAME\.dev|g" site/web/app/themes/$APP_NAME/assets/manifest.json
+sed -i '' "s|http:\/\/example\.dev|http:\/\/$REPO_NAME\.dev|g" site/web/app/themes/$REPO_NAME/assets/manifest.json
 
 # Navigate to theme directory
-cd site/web/app/themes/$APP_NAME
+cd site/web/app/themes/$REPO_NAME
 # Install node modules
 npm install
 # Install bower packages
@@ -162,7 +215,7 @@ bower install
 gulp
 
 # Navigate to root directory
-cd ../../../../../../$APP_NAME.com
+cd ../../../../../../$REPO_NAME
 # cd ../../../../../
 # Initialize Git Repository
 git init
@@ -171,14 +224,27 @@ git add .
 # Commit codebase
 git commit -m "first commit, adding trellis, beadrock, and sage files from provision script."
 # Add origin
-git remote add origin git@github.com:$GITHUB_USER/$APP_NAME.com.git
+git remote add origin git@github.com:$GITHUB_USER/$REPO_NAME.git
 # Push to master branch
-git push -u origin master
+# git push -u origin master
 
 # Navigate to trellis directory
 cd trellis
 # Vagrant
 vagrant up
+#
+# vagrant ssh
+#
+# cd /srv/www/$DOMAIN_NAME$TLD
+#
+# composer update
+#
+# wp package install sebastiaandegeus/wp-cli-salts-command
+#
+# wp salts generate
+#
+
+#
 
 #$ ansible-playbook server.yml -e env=<environment>
 
@@ -192,14 +258,33 @@ vagrant up
 #ansible-playbook deploy.yml -e "site=roots-example-project.com env=<environment>"
 
 # Deploy to Staging Server
-# ./deploy.sh staging $APP_NAME.com
+# ./deploy.sh staging $DOMAIN_NAME.com
 #ansible-playbook deploy.yml -e "site=$STAGING_URL env=staging"
 
 # Deploy to Production Server
-#./deploy.sh production $APP_NAME.com
-#ansible-playbook deploy.yml -e "site=$APP_NAME.com env=production"
+#./deploy.sh production $DOMAIN_NAME.com
+#ansible-playbook deploy.yml -e "site=$DOMAIN_NAME.com env=production"
 
-cd ../site/web/app/themes/$APP_NAME
+
+#
+cd ../site/web/app/themes/$REPO_NAME
 # Turn on gulp to watch for changes and fire up browsersync
 gulp watch
-echo "Done!"
+#
+echo "VAULT_PASS: ${VAULT_PASS}"
+echo "VAULT_MAIL_PASS: ${VAULT_PASS}"
+echo "DEV_VAULT_MYSQL_ROOT_PASS: ${VAULT_PASS}"
+echo "DEV_VAULT_USERS_PASS: ${VAULT_PASS}"
+echo "DEV_VAULT_USERS_DB_PASS: ${VAULT_PASS}"
+echo "STAGE_VAULT_MYSQL_ROOT_PASS: ${VAULT_PASS}"
+echo "STAGE_VAULT_USERS_PASS: ${VAULT_PASS}"
+echo "STAGE_VAULT_USERS_DB_PASS: ${VAULT_PASS}"
+echo "PROD_VAULT_MYSQL_ROOT_PASS: ${VAULT_PASS}"
+echo "PROD_VAULT_USERS_PASS: ${VAULT_PASS}"
+echo "PROD_VAULT_USERS_DB_PASS: ${VAULT_PASS}"
+#
+echo "**************************************************************"
+echo "***************** SAVE THE PASSWORDS ABOVE *******************"
+echo "**************************************************************"
+#
+echo "Don't forget to add your salts and encrypt your vault files!!!"
